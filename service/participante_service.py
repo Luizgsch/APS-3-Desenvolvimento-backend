@@ -1,30 +1,54 @@
-from service.dados import lista_participantes, lista_inscricoes
+import sqlite3
 
-def criar_participante(recebido):
-    dados = recebido.model_dump()
-    dados["id"] = max((item["id"] for item in lista_participantes), default=0) + 1
-    lista_participantes.append(dados)
-    return dados
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
-def retornar_participantes():
-    return lista_participantes
+from model import Participante
+from schema.participante_schema import ParticipanteCreate, ParticipanteRead, ParticipanteUpdate
+from service.erros import EmailDuplicadoError
 
-def pesquisar_participante(id):
-    return next((item for item in lista_participantes if item["id"] == id), None)
+def _salvar(db: Session, participante: Participante) -> ParticipanteRead:
+    try:
+        db.flush()
+        resultado = ParticipanteRead.model_validate(participante)
+        db.commit()
+        return resultado
+    except IntegrityError as erro:
+        db.rollback()
+        # Só a violação específica de e-mail é um conflito conhecido de negócio.
+        if (
+            isinstance(erro.orig, sqlite3.IntegrityError)
+            and getattr(erro.orig, "sqlite_errorcode", None) == sqlite3.SQLITE_CONSTRAINT_UNIQUE
+            and str(erro.orig) == "UNIQUE constraint failed: participantes.email"
+        ):
+            raise EmailDuplicadoError() from erro
+        raise
 
-def atualizar_participante(id, recebido):
-    for indice, item in enumerate(lista_participantes):
-        if item["id"] == id:
-            dados = recebido.model_dump()
-            dados["id"] = id
-            lista_participantes[indice] = dados
-            return dados
-    return None
+def criar_participante(db: Session, recebido: ParticipanteCreate) -> ParticipanteRead:
+    participante = Participante(**recebido.model_dump())
+    db.add(participante)
+    return _salvar(db, participante)
 
-def excluir_participante(id):
-    for indice, item in enumerate(lista_participantes):
-        if item["id"] == id:
-            excluido = lista_participantes.pop(indice)
-            lista_inscricoes[:] = [i for i in lista_inscricoes if i["participante_id"] != id]
-            return excluido
-    return None
+def retornar_participantes(db: Session) -> list[Participante]:
+    return list(db.scalars(select(Participante).order_by(Participante.id)))
+
+def pesquisar_participante(db: Session, id: int) -> Participante | None:
+    return db.get(Participante, id)
+
+def atualizar_participante(db: Session, id: int, recebido: ParticipanteUpdate) -> ParticipanteRead | None:
+    participante = pesquisar_participante(db, id)
+    if participante is None:
+        return None
+    for campo, valor in recebido.model_dump().items():
+        setattr(participante, campo, valor)
+    return _salvar(db, participante)
+
+
+def excluir_participante(db: Session, id: int) -> bool:
+    participante = pesquisar_participante(db, id)
+    if participante is None:
+        return False
+    db.delete(participante)
+    db.commit()
+    return True

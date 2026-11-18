@@ -1,45 +1,44 @@
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy.orm import Session
 
-from model.evento import Evento
-from service.evento_service import (
-    atualizar_evento,
-    criar_evento,
-    excluir_evento,
-    pesquisar_evento,
-    retornar_eventos,
-)
+from database import get_db
+from schema.evento_schema import EventoCreate, EventoRead, EventoUpdate
+from service.erros import CapacidadeInsuficienteError
+from service.evento_service import criar_evento, retornar_eventos, pesquisar_evento, atualizar_evento, excluir_evento
 
 router = APIRouter(prefix="/eventos", tags=["Eventos"])
 
+@router.post("", response_model=EventoRead, status_code=status.HTTP_201_CREATED)
+def criar_eventos(evento_recebido: EventoCreate, db: Session = Depends(get_db)):
+    return criar_evento(db, evento_recebido)
 
-@router.post("", status_code=status.HTTP_201_CREATED)
-def criar_eventos(evento_recebido: Evento):
-    return criar_evento(evento_recebido)
+@router.get("", response_model=list[EventoRead])
+def ver_eventos(db: Session = Depends(get_db)):
+    return retornar_eventos(db)
 
-
-@router.get("")
-def ver_eventos():
-    return retornar_eventos()
-
-
-@router.get("/{id}")
-def listar_evento(id: int):
-    evento = pesquisar_evento(id)
-    if evento is None:
+@router.get("/{id}", response_model=EventoRead)
+def listar_evento(id: int, db: Session = Depends(get_db)):
+    evento_encontrado = pesquisar_evento(db, id)
+    if evento_encontrado is None:
         raise HTTPException(status_code=404, detail="Evento não encontrado.")
-    return evento
+    return evento_encontrado
 
-
-@router.put("/{id}")
-def trocar_evento(id: int, evento_recebido: Evento):
-    evento = atualizar_evento(id, evento_recebido)
-    if evento is None:
+@router.put("/{id}", response_model=EventoRead)
+def trocar_evento(id: int, evento_recebido: EventoUpdate, db: Session = Depends(get_db)):
+    try:
+        evento_atualizado = atualizar_evento(db, id, evento_recebido)
+    except CapacidadeInsuficienteError:
+        raise HTTPException(409, "Capacidade não pode ser menor que a quantidade de inscritos.") from None
+    if evento_atualizado is None:
         raise HTTPException(status_code=404, detail="Evento não encontrado.")
-    return evento
-
+    return evento_atualizado
 
 @router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
-def deletar_evento(id: int):
-    if excluir_evento(id) is None:
-        raise HTTPException(status_code=404, detail="Evento não encontrado.")
+def deletar_evento(id: int, db: Session = Depends(get_db)):
+    if not excluir_evento(db, id):
+        raise HTTPException(
+            status_code=404,
+            detail="Evento não encontrado."
+        )
+
     return Response(status_code=status.HTTP_204_NO_CONTENT)

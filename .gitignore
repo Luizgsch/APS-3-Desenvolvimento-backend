@@ -1,5 +1,12 @@
 .venv/
+.venv-*/
+/tmp/
+/output/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .env
+eventos.db
+eventos.db-journal
+eventos.db-wal
+eventos.db-shm

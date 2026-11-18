@@ -1,0 +1,11 @@
+{
+  "verificado_em_utc": "2026-11-17T19:06:06.541049+00:00",
+  "modo": "somente leitura",
+  "integrity_check": [
+    [
+      "ok"
+    ]
+  ],
+  "foreign_key_check": [],
+  "inscricoes_orfas": 0
+}
